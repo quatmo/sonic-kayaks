@@ -1,0 +1,439 @@
+#!/usr/bin/lua
+
+-- Swamp Bike Opera embedded system for Kaffe Matthews 
+-- Copyright (C) 2012 Wolfgang Hauptfleisch, Dave Griffiths
+--
+-- This program is free software: you can redistribute it and/or modify
+-- it under the terms of the GNU General Public License as published by
+-- the Free Software Foundation, either version 3 of the License, or
+-- (at your option) any later version.
+-- This program is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-- GNU General Public License for more details.
+-- You should have received a copy of the GNU General Public License
+-- along with this program.  If not, see <http://www.gnu.org/licenses
+
+local scriptpath=string.match(arg[0], '^.*/')
+
+package.path = package.path..";"..scriptpath.."/?.lua;"..scriptpath.."/../lib/?.lua"
+package.cpath = package.cpath..";"..scriptpath.."/?.so;"..scriptpath.."/../lib/?.so;"  --/home/sonic/app-findingsong/src/?.so"
+
+
+-- create an audio device using default parameters and exit in case of errors
+require("proAudioRt")
+require("posix")
+require("socket")
+require 'json'
+require('utils')
+
+print("swamp_playd: starting player")
+posix.mkfifo("/tmp/dodo")
+
+CONFIG=utils.load_json("/home/sonic/sdcard/config.json")
+
+function load_sample(sample,name)
+    local dir = CONFIG.audio_path..name
+    local randomfile = grabrandomsample(dir, name)
+    local samplefilepath 
+    if randomfile ~= false then
+        samplefilepath = dir.."/"..randomfile
+        --print("swamp_playd loaded RANDOM: "..name.." file:"..samplefilepath)
+    else
+        samplefilepath = CONFIG.audio_path..name..".wav"
+        print("swamp_playd loaded: "..name.." file:"..samplefilepath)
+    end
+    sample[name] = proAudio.sampleFromFile(samplefilepath)
+    return sample
+end
+
+function unload_sample(sample,name)
+    print("swamp_playd unloaded: "..name, ' sample[name]:', sample[name])
+    proAudio.sampleDestroy(sample[name])
+    sample[name] = nil
+    return sample
+end
+
+function play_not_found()
+    local s=proAudio.sampleFromFile("/home/sonic/sonic-bike-init/notfound.wav") 
+    proAudio.soundPlay(s)
+    socket.sleep(5)
+    proAudio.sampleDestroy(s)
+end
+
+function print_samples(sample)
+    print("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+    for k,v in pairs(sample) do
+        print(k)
+    end
+    print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
+end
+
+function sound_check()
+    while true do
+        for file in posix.files(CONFIG.audio_path) do
+    	    local name=string.sub(file,0,string.len(file))
+    	    local sample = proAudio.sampleFromFile(CONFIG.audio_path..file)
+    	    print("loaded, playing "..CONFIG.audio_path..file)
+    	    if sample then 
+       	    local sound =  proAudio.soundPlay(sample)
+       	        socket.sleep(20)
+       		proAudio.soundStop(sound)
+       		proAudio.sampleDestroy(sample)
+    	    end
+	end
+    end
+end
+
+----------------------------------------------------------------------------
+-- Grab a random filename from a directory
+-- Returns false if the directory doesn't exist
+function grabrandomsample(path, name)
+    local d = isdir(path)
+    --print('File:'..path..' IsFile:'..tostring(f)..' IsDir:'..tostring(d))
+    if d==true then 
+        -- grab a random sample from the directory
+        sample = scandirforrandom(path, name)
+        if sample ~= false then
+            --print('*****************************************************************************************************RANDOMload:'..name..' sample:'..sample)
+            randomloaded[name][sample] = sample 
+            --print(utils.table_print(randomloaded[name]))
+            --print('*********************************************************************************************************************************************')
+
+        end
+        return sample
+    else
+        return false
+    end 
+end
+
+function isdir(fn)
+    local fstype = posix.stat(fn, "type")
+    if fstype == 'directory' then
+        return true
+    else 
+        return false
+    end 
+end
+
+function table_length(T)
+  local count = 0
+  for _ in pairs(T) do count = count + 1 end
+  return count
+end
+
+function scandirforrandom(directory, name)
+    local p, i, t, pp, popen = 0,0,{}, {}, io.popen
+    for filename in popen('ls -a "'..directory..'"'):lines() do
+        firstchar = string.sub(filename,1,1)
+        if firstchar ~= '.' then
+            -- Check we haven't recently loaded this sample
+            if not randomloaded[name][filename] then
+                i = i + 1 
+                t[i] = filename
+            end
+            p=p+1
+            pp[p] = filename
+        end 
+    end 
+    randlength = table_length(randomloaded[name]) 
+    --print('TableLoaded'..name..' Length:', randlength)
+    --print(utils.table_print(randomloaded[name]))
+    if p == 0 then
+        return false
+    end 
+    if i == 0 and randlength ~= 0 then
+        randomloaded[name] = {}
+        t = pp
+        i = p
+    end
+    math.randomseed(os.time())
+    rand = math.random(i)
+    return t[rand]
+end
+
+function round(val, decimal)
+  local exp = decimal and 10^decimal or 1
+  return math.ceil(val * exp - 0.5) / exp
+end
+
+-- Loop through one shots and unload them if they have finished playing
+function manageoneshots(oneshots, sample)
+    for key, value in pairs(oneshots) do
+        if oneshots[key]['started'] ~= nil then
+            elapsed = os.time()-oneshots[key]['started']
+            if elapsed >= oneshots[key]['duration'] then
+                if sample[key] then
+                    print('swamp_playd oneshot unload: key:'..key..' elapsed:'..elapsed..' duration:'..oneshots[key]['duration']..' sample[n]:'..sample[key])
+                    sample=unload_sample(sample,key) 
+                end
+                sound[key] = nil
+                sample[key] = nil
+                oneshots[key]['started']  = nil
+                oneshots[key]['duration'] = nil 
+            end
+        end
+    end
+    return sample
+end
+
+----------------------------------------------------------------------------
+if not proAudio.create(8,CONFIG.audio_samplerate,1024) then -- 8, 44000, 1024 ) then 
+   print("couldn't create audio")
+   os.exit() 
+end
+
+
+-- play a test sound at startup
+print("swamp_playd: play startup sound")
+local s=proAudio.sampleFromFile("/home/sonic/sonic-bike-init/startup-findingsong.wav")
+local b=proAudio.soundPlay(s, 1.0, 1.0, 0.0, 0.2)
+for i=0.3 , 2 , 0.1 do
+    proAudio.soundUpdate(b, 1.0, 1.0, 0.0, i  )
+    socket.sleep(0.25)
+end
+--print("end of loop")
+-- wait until the sound has finished:
+while proAudio.soundActive()>0 do
+  proAudio.sleep(0.05)
+end
+--socket.sleep(1)
+print("swamp_playd: end startup sound")
+proAudio.sampleDestroy(s)
+proAudio.sampleDestroy(b)
+
+
+--- initialize the sample and sound table
+sample = {}
+sound = {}
+pitches = {} -- saves the current pitch of a sample
+randomloaded = {} -- saves which files have already been 'randomly selected'
+oneshots = {}
+
+local file = io.open("/tmp/dodo","r")
+
+while true do
+  socket.sleep(0.2)
+  local line = file:read()
+    
+  -- Determine if a oneshot should be unloaded  
+  sample=manageoneshots(oneshots, sample)
+
+  if line then
+
+    local message , n, nn = string.match(line, "^(.-)%s(.-)$")
+    print("swamp_playd received: "..message, n)
+    -- local n = tonumber(n)
+  if n and message then
+
+    if message == "load" then
+       --print("received load for:"..n)
+       if not sample[n] then
+            if not randomloaded[n] then
+                randomloaded[n] = {}
+       	    end
+       	    sample=load_sample(sample,n) 
+            pitches[n] = 1
+       end
+
+    elseif message == "unload" then
+       if sample[n] then 
+            -- Don't unload if this is a one shot that needs to play to the end
+            if oneshots[n] then
+                -- Its a one shot, let the one shot manager sort unloading
+                print('swamp_playd unload oneshot:'..n..'iss a one shot, let the one shot manager sort unloading')
+            else
+       	        sample=unload_sample(sample,n) 
+       	        pitches[n] = 1
+       	    end
+       end
+
+    elseif message == "play" then
+        if not sound[n] then
+            if sample[n] then 
+                print("swamp_playd play: "..n)
+                if oneshots[n] then
+                    duration, channels, sampleRate, bitsPerSample = proAudio.sampleProperties (sample[n])
+                    oneshots[n]['started'] = os.time()
+                    oneshots[n]['duration'] = math.floor(duration+1)
+                    print('swamp_playd play oneshot:'..n..' duration:'..oneshots[n]['duration']..' started:'..oneshots[n]['started'])
+                end
+                sound[n] = proAudio.soundPlay(sample[n], 2.0, 2.0, 0.0, pitches[n])
+            else 
+                print("swamp_playd play:"..n.." not loaded")
+                print_samples(sample)
+                play_not_found()
+            end
+        else
+            print("swamp_playd play:"..n.." already playing")
+        end
+    
+    elseif message == "isoneshot" then
+        if not oneshots[n] then
+            print("swamp_playd isoneshot create table for:"..n)
+            oneshots[n] = {}
+        else
+            print("swamp_playd isoneshot table already exists for:"..n)
+        end
+
+    elseif message == "loop" then
+        if not sound[n] then
+	        if sample[n] then 
+	            print("swamp_playd loop:"..n)
+	            sound[n] = proAudio.soundLoop(sample[n], 2.0, 2.0, 0.0, pitches[n])
+	        else 
+                print("swamp_playd loop:"..n.." not loaded")
+                play_not_found()
+	        end
+        else
+            print("swamp_playd loop"..n.." already playing")
+         end
+
+   elseif message == "play_right" then
+         if not sound[n] then
+	    if sample[n] then 
+                sound[n] = proAudio.soundPlay(sample[n])
+                proAudio.soundUpdate( sound[n], 0.0, 2.0, 0.0, pitches[n] )
+	    else 
+                print("!!!!!!!!!! sound "..n.." not loaded")
+                play_not_found()
+	    end
+         else
+            print("sound "..n.." allready playing")
+         end
+
+   elseif message == "play_left" then
+         if not sound[n] then
+	    if sample[n] then 
+	        sound[n] = proAudio.soundLoop(sample[n])
+                proAudio.soundUpdate( sound[n], 2.0, 0.0, 0.0, pitches[n] )
+	    else 
+                print("!!!!!!!!!! sound "..n.." not loaded")
+                play_not_found()
+	    end
+         else
+            print("sound "..n.." allready playing")
+         end
+
+   elseif message == "loop_right" then
+         if not sound[n] then
+	    if sample[n] then 
+                sound[n] = proAudio.soundLoop(sample[n],1,0, 0.0, pitches[n])
+	    else 
+                print("!!!!!!!!!! sound "..n.." not loaded")
+                play_not_found()
+	    end
+         else
+            print("sound "..n.." allready playing")
+         end
+
+   elseif message == "loop_left" then
+         if not sound[n] then
+	    if sample[n] then 
+                sound[n] = proAudio.soundLoop(sample[n],0,1, 0.0, pitches[n])
+	    else 
+                print("!!!!!!!!!! sound "..n.." not loaded")
+                play_not_found()
+	    end
+         else
+            print("sound "..n.." allready playing")
+         end
+
+    elseif message == "stop" then
+         if n == 100 then
+            for z = 1, 22 do
+               if sound[n] then
+                proAudio.soundStop(sound[n])
+                sound[n] = false
+               end
+            end
+         else
+             if sound[n] then
+                 proAudio.soundStop(sound[n])
+                 sound[n] = false
+             end
+         end
+
+    elseif message == "right" then
+          if sound[n] then
+             proAudio.soundUpdate( sound[n], 0.0, 2.0, 0.0, pitches[n])
+             --posix.sleep(1)
+          end
+
+    elseif message == "left" then
+         if sound[n] then
+             proAudio.soundUpdate( sound[n], 2.0, 0.0, 0.0, pitches[n] )  
+             --posix.sleep(2)
+         end
+    
+    elseif message == "pitch" then
+        local name,pitch = string.match(n, "^(.-)%s(.-)$")
+        pitch = tonumber(pitch)
+        --print('AUdio daemon: '..name)
+        if sound[name] then
+            --if not pitches[name] then
+            --    pitches[name] = 1
+            --end
+            from = round(pitches[name], 2)
+            to = round(pitch, 2)
+            incr = 0.04
+            if from > to then
+                incr = incr-(incr*2)
+            end
+            pause = 0.05
+            print('=======swamp_playd CHANGE PITCH OF:'..name..' from:'..from..' to:'..to..' incr:'..incr)           
+            if from ~= to then
+                for i=from, to, incr do
+                    proAudio.soundUpdate(sound[name], 1.0, 1.0, 0.0, i)
+                    print(i)
+                    socket.sleep(pause)
+                end
+            end
+            pitches[name] = pitch
+        end
+        
+    elseif message == "slow" then
+         if sound[n] then
+             proAudio.soundUpdate( sound[n], 1.0, 1.0, 0.0, 0.5 )
+             --posix.sleep(1)
+         end
+
+    elseif message == "normal" then
+         if sound[n] then
+             proAudio.soundUpdate( sound[n], 1.0, 1.0, 0.0, 1.0 )
+             --posix.sleep(1)
+         end
+
+    elseif message == "fast" then
+         if sound[n] then
+             proAudio.soundUpdate( sound[n], 1.0, 1.0, 0.0, 2.0 )
+             --posix.sleep(1)
+         end
+
+
+    elseif message == "fadeout" then
+        if sound[n] then
+    	   print("swamp_playd fading:"..n)
+             for i= 1 , 0 , -0.1 do
+                 proAudio.soundUpdate( sound[n], i, i, 0.0, pitches[n]  )
+                 socket.sleep(0.25)
+             end
+          proAudio.soundStop(sound[n])
+          sound[n] = false
+        end
+    else
+         print("invalid message")
+    end    
+
+   else 
+    print("invalid or missing parameter")
+   end
+
+  end
+
+
+
+end
+
+os.remove("/tmp/dodo")
+print("exit")
