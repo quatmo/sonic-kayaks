@@ -19,17 +19,19 @@ require 'utils'
 
 module("send_osc", package.seeall)
 
-local osc = osc.client.new{host = 'localhost', port = 8888}
+local osc = osc.client.new{host = '127.0.0.1', port = 8888}
 
 -- osc version
 function send_events(events,pos_state)
     -- now look through all the maps for new events
     for k,layer in pairs(events) do       
         for k,event in pairs(layer) do
+	    print("sending...")
 	    osc:send({'#bundle',os.time(),
 		{"/"..event.type,
 		"s",event.zone_name,
 		}})
+	    print("sent...")
 	end
     end
 end
