@@ -9,8 +9,9 @@ gps = {}
 
 #base_path = "archive/27072016-flushing/"
 # 16.062 to 16.437
-base_path = "archive/24082016-penryn/"
+#base_path = "archive/24082016-penryn/"
 # 17.625 to 18.062
+base_path = "archive/06092016-swansea/2/"
 
 gpsraw = open('gpsraw.txt','w')
 
@@ -18,7 +19,7 @@ gpsraw.write("latitude,longitude\n")
 
 gps_centre = [0,0]
 gps_count = 0
-with open(base_path+'gps-edited.log', 'r') as lines:
+with open(base_path+'gps.log', 'r') as lines:
     for i,l in enumerate(lines):
         row = l.split(" ")
         if len(row)==7:
@@ -34,14 +35,14 @@ gps_centre[0]/=float(gps_count)
 gps_centre[1]/=float(gps_count)
 
 temp = []
-with open(base_path+'temp-edited.log', 'r') as lines:
+with open(base_path+'temp.log', 'r') as lines:
     for l in lines:
         row = l.split(" ")
         print row
         if len(row)==3:
             t = float(row[2])
             print t
-            if t<18.1 and row[1] in gps:
+            if t<28.1 and row[1] in gps:
                 pos = gps[row[1]]
                 temp.append([pos,t])
             if row[0] in gps:
@@ -57,7 +58,7 @@ max_temp = 0
 
 for t in temp:
     if t[1]<min_temp: min_temp=t[1]
-    if t[1]>max_temp: max_temp=t[1]
+    if t[1]>max_temp and t[1]<19: max_temp=t[1]
 
 print min_temp
 print max_temp
@@ -92,7 +93,9 @@ for i,tt in enumerate(temp):
     ##print tt[0][0]
     t-=min_temp
     t/=max_temp-min_temp
-    
+
+    if t>1: t=1
+
     col = (col_b[0]*t + col_a[0]*(1-t),
            col_b[1]*t + col_a[1]*(1-t),
            col_b[2]*t + col_a[2]*(1-t))
@@ -108,6 +111,7 @@ for i,tt in enumerate(temp):
     #                alpha=0.3, edgecolors='none')
     
 
+#gmap.heatmap(lats, lons)
 #gmap.plot(lats, lons, cols, edge_width=10)
 
 #plt.xlabel("latitude")
