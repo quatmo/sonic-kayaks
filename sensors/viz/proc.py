@@ -12,6 +12,7 @@ gps = {}
 #base_path = "archive/24082016-penryn/"
 # 17.625 to 18.062
 base_path = "archive/06092016-swansea/2/"
+#base_path = "archive/08012017-penryn/"
 
 gpsraw = open('gpsraw.txt','w')
 
@@ -21,7 +22,8 @@ gps_centre = [0,0]
 gps_count = 0
 with open(base_path+'gps.log', 'r') as lines:
     for i,l in enumerate(lines):
-        row = l.split(" ")
+        row = l.split()
+        print(row)
         if len(row)==7:
             #gpsraw.write(row[5]+", "+row[6]) 
             lon = float(row[5])
@@ -58,7 +60,7 @@ max_temp = 0
 
 for t in temp:
     if t[1]<min_temp: min_temp=t[1]
-    if t[1]>max_temp and t[1]<19: max_temp=t[1]
+    if t[1]>max_temp: max_temp=t[1]
 
 print min_temp
 print max_temp
