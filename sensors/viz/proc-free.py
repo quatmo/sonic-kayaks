@@ -1,10 +1,6 @@
 import csv
 import math
-import matplotlib.pyplot as plt
-import numpy as np
-from mpl_toolkits.basemap import Basemap
 import json
-import gmplot
 
 def heatmap_colour(value):
     colours = [[0,0,1], [0,1,0], [1,1,0], [1,0,0]]
@@ -23,7 +19,6 @@ def heatmap_colour(value):
     return [(colours[idx2][0] - colours[idx1][0])*fract + colours[idx1][0],
             (colours[idx2][1] - colours[idx1][1])*fract + colours[idx1][1],
             (colours[idx2][2] - colours[idx1][2])*fract + colours[idx1][2]]
-
 
 gps = {}
 
@@ -105,7 +100,18 @@ col_a = (0,0,255)
 col_b = (255,255,0)
 col_c = (255,0,0)
 
-gmap = gmplot.GoogleMapPlotter(gps_centre[0], gps_centre[1], 16)
+import folium
+
+m = folium.Map(location=gps_centre,zoom_start=16
+               #tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+               #attr="Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+               )
+
+#folium.TileLayer('MapQuest Open Aerial').add_to(m)
+#folium.TileLayer('stamenterrain').add_to(m)
+#folium.TileLayer('stamenwatercolor').add_to(m)
+
+folium.LayerControl().add_to(m)
 
 lons = []
 lats = []
@@ -136,45 +142,16 @@ for i,tt in enumerate(temp):
     cols.append('#%02x%02x%02x'%(col[0],col[1],col[2]))
     #print x,y
 
-    gmap.circle(x,y,4,c='#%02x%02x%02x'%(col[0],col[1],col[2]),face_alpha=0.1,edge_alpha=0.1)
-
-    #plt.scatter(x, y, c='#%02x%02x%02x'%col, s=scale,
-    #                alpha=0.3, edgecolors='none')
-    
-
-#gmap.heatmap(lats, lons)
-#gmap.plot(lats, lons, cols, edge_width=10)
-
-#plt.xlabel("latitude")
-#plt.ylabel("longitude")
-#plt.title("Sea temperature by GPS position")
-
-#plt.grid(True)
-
-#plt.show()
-
-####################################################
-# add in sonic map
-
-# f = open("maprender/mapswansea.json","r")
-# layers = json.loads(f.read())
-# f.close()
-
-# for layer in layers:
-#     for zone in layer["zones"]:
-#         print(zone["name"])
-#         lats = []
-#         lngs = []
-#         centre = [0,0]
-#         for latlng in zone["vertices"][0]:
-#             centre[0]+=float(latlng["lat"])
-#             centre[1]+=float(latlng["lng"])
-#             lats.append(float(latlng["lat"]))
-#             lngs.append(float(latlng["lng"]))
-
-#         gmap.polygon(lats, lngs, zone["color"])
-
-#######################################################
+    #gmap.circle(x,y,4,c=,face_alpha=0.1,edge_alpha=0.1)
+    if i%1==0:
+        folium.Circle(
+            radius=4,
+            location=[x,y],
+            color='#%02x%02x%02x'%(col[0],col[1],col[2]),
+            fill=True,
+            stroke=False,
+        ).add_to(m)
 
 
-gmap.draw("mymap.html")
+
+m.save("mymap-free.html")
